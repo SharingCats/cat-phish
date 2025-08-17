@@ -10,6 +10,17 @@ interface Fish {
   direction: { x: number; y: number };
 }
 
+interface Jellyfish {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  direction: { x: number; y: number };
+  spawnTime: number;
+  isActive: boolean;
+}
+
 interface GameState {
   player1: {
     x: number;
@@ -32,6 +43,8 @@ interface GameState {
     specialAbilityCooldown: number;
   };
   fish: Fish[];
+  jellyfish: Jellyfish | null;
+  lastJellyfishSpawn: number;
 }
 
 export const useGameLogic = () => {
@@ -56,7 +69,9 @@ export const useGameLogic = () => {
       specialAbilityEndTime: 0,
       specialAbilityCooldown: 0
     },
-    fish: []
+    fish: [],
+    jellyfish: null,
+    lastJellyfishSpawn: 0
   });
 
   const gameAreaRef = useRef<HTMLDivElement>(null);
@@ -182,11 +197,64 @@ export const useGameLogic = () => {
     };
   }, []);
 
-  // Check collision between both players and fish
+  // Generate jellyfish
+  const generateJellyfish = useCallback((player1Size: number, player2Size: number): Jellyfish => {
+    const biggerCatSize = Math.max(player1Size, player2Size);
+    const speed = Math.random() * 1.8 + 1.2; // 20% faster than shark (was 1.5 + 1, now 1.8 + 1.2)
+    
+    return {
+      id: Math.random().toString(36).substr(2, 9),
+      x: Math.random() * (window.innerWidth - biggerCatSize),
+      y: Math.random() * (window.innerHeight - biggerCatSize - 100) + 50,
+      size: biggerCatSize,
+      speed,
+      direction: { 
+        x: (Math.random() - 0.5) * 2 * speed, 
+        y: (Math.random() - 0.5) * speed 
+      },
+      spawnTime: Date.now(),
+      isActive: true
+    };
+  }, []);
+
+  // Check collision between both players and fish/jellyfish
   const checkCollisions = useCallback(() => {
     setGameState(prev => {
       let fishEatenByPlayer1 = 0;
       let fishEatenByPlayer2 = 0;
+      let player1Updated = { ...prev.player1 };
+      let player2Updated = { ...prev.player2 };
+
+      // Check jellyfish collision first
+      if (prev.jellyfish && prev.jellyfish.isActive) {
+        // Check collision with Player 1
+        const dx1 = prev.jellyfish.x + prev.jellyfish.size/2 - prev.player1.x;
+        const dy1 = prev.jellyfish.y + prev.jellyfish.size/2 - prev.player1.y;
+        const distance1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+        const collisionRadius1 = (prev.player1.size + prev.jellyfish.size) / 3;
+        
+        if (distance1 < collisionRadius1) {
+          player1Updated = {
+            ...player1Updated,
+            score: Math.floor(player1Updated.score * 0.9), // Lose 10% of score
+            size: Math.max(40, player1Updated.size * 0.9) // Lose 10% of size, minimum 40
+          };
+        }
+
+        // Check collision with Player 2
+        const dx2 = prev.jellyfish.x + prev.jellyfish.size/2 - prev.player2.x;
+        const dy2 = prev.jellyfish.y + prev.jellyfish.size/2 - prev.player2.y;
+        const distance2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+        const collisionRadius2 = (prev.player2.size + prev.jellyfish.size) / 3;
+        
+        if (distance2 < collisionRadius2) {
+          player2Updated = {
+            ...player2Updated,
+            score: Math.floor(player2Updated.score * 0.9), // Lose 10% of score
+            size: Math.max(40, player2Updated.size * 0.9) // Lose 10% of size, minimum 40
+          };
+        }
+      }
 
       const newFish = prev.fish.filter(fish => {
         // Check collision with Player 1 (Meowzart)
@@ -223,16 +291,16 @@ export const useGameLogic = () => {
         ...prev,
         fish: newFish,
         player1: {
-          ...prev.player1,
-          score: prev.player1.score + fishEatenByPlayer1 * 10,
-          fishEaten: prev.player1.fishEaten + fishEatenByPlayer1,
-          size: prev.player1.size + fishEatenByPlayer1 * 2
+          ...player1Updated,
+          score: player1Updated.score + fishEatenByPlayer1 * 10,
+          fishEaten: player1Updated.fishEaten + fishEatenByPlayer1,
+          size: player1Updated.size + fishEatenByPlayer1 * 2
         },
         player2: {
-          ...prev.player2,
-          score: prev.player2.score + fishEatenByPlayer2 * 10,
-          fishEaten: prev.player2.fishEaten + fishEatenByPlayer2,
-          size: prev.player2.size + fishEatenByPlayer2 * 2
+          ...player2Updated,
+          score: player2Updated.score + fishEatenByPlayer2 * 10,
+          fishEaten: player2Updated.fishEaten + fishEatenByPlayer2,
+          size: player2Updated.size + fishEatenByPlayer2 * 2
         }
       };
     });
@@ -248,6 +316,47 @@ export const useGameLogic = () => {
       const currentTime = Date.now();
       const shouldEndMeowzartAbility = prev.player1.specialAbilityActive && currentTime > prev.player1.specialAbilityEndTime;
       const shouldEndMeoweinsteinAbility = prev.player2.specialAbilityActive && currentTime > prev.player2.specialAbilityEndTime;
+      
+      // Handle jellyfish spawning (every minute)
+      let updatedJellyfish = prev.jellyfish;
+      const shouldSpawnJellyfish = currentTime - prev.lastJellyfishSpawn > 60000 && !prev.jellyfish; // 60 seconds
+      const shouldRemoveJellyfish = prev.jellyfish && (currentTime - prev.jellyfish.spawnTime > 15000); // 15 seconds active
+      
+      if (shouldSpawnJellyfish) {
+        updatedJellyfish = generateJellyfish(prev.player1.size, prev.player2.size);
+      } else if (shouldRemoveJellyfish) {
+        updatedJellyfish = null;
+      } else if (prev.jellyfish && prev.jellyfish.isActive) {
+        // Move jellyfish randomly and keep it in bounds
+        let newX = prev.jellyfish.x + prev.jellyfish.direction.x;
+        let newY = prev.jellyfish.y + prev.jellyfish.direction.y;
+        let newDirection = { ...prev.jellyfish.direction };
+        
+        // Bounce off walls
+        if (newX <= 0 || newX >= window.innerWidth - prev.jellyfish.size) {
+          newDirection.x *= -1;
+          newX = Math.max(0, Math.min(newX, window.innerWidth - prev.jellyfish.size));
+        }
+        if (newY <= 0 || newY >= window.innerHeight - prev.jellyfish.size) {
+          newDirection.y *= -1;
+          newY = Math.max(0, Math.min(newY, window.innerHeight - prev.jellyfish.size));
+        }
+        
+        // Occasionally change direction randomly
+        if (Math.random() < 0.02) {
+          newDirection = {
+            x: (Math.random() - 0.5) * 2 * prev.jellyfish.speed,
+            y: (Math.random() - 0.5) * prev.jellyfish.speed
+          };
+        }
+        
+        updatedJellyfish = {
+          ...prev.jellyfish,
+          x: newX,
+          y: newY,
+          direction: newDirection
+        };
+      }
       
       // Move existing fish
       const updatedFish = prev.fish
@@ -288,6 +397,8 @@ export const useGameLogic = () => {
       return {
         ...prev,
         fish: newFish,
+        jellyfish: updatedJellyfish,
+        lastJellyfishSpawn: shouldSpawnJellyfish ? currentTime : prev.lastJellyfishSpawn,
         player1: shouldEndMeowzartAbility ? {
           ...prev.player1,
           specialAbilityActive: false,
@@ -303,7 +414,7 @@ export const useGameLogic = () => {
 
     checkCollisions();
     animationFrameRef.current = requestAnimationFrame(gameLoop);
-  }, [generateFish, checkCollisions, updatePlayersPosition]);
+  }, [generateFish, generateJellyfish, checkCollisions, updatePlayersPosition]);
 
   // Initialize game
   useEffect(() => {
@@ -357,7 +468,9 @@ export const useGameLogic = () => {
         specialAbilityEndTime: 0,
         specialAbilityCooldown: 0
       },
-      fish: initialFish
+      fish: initialFish,
+      jellyfish: null,
+      lastJellyfishSpawn: 0
     });
   }, [generateFish]);
 

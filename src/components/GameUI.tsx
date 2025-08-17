@@ -38,7 +38,7 @@ export const GameUI = ({ player1, player2, onRestart }: GameUIProps) => {
             
             {/* Special ability status */}
             <div className="text-sm pt-2 border-t border-border">
-              <div className="text-orange-400 font-semibold">♪ Charm Fish (R)</div>
+              <div className="text-orange-400 font-semibold">♪ Fish (R)</div>
               {player1.specialAbilityActive ? (
                 <div className="text-green-400">
                   Active: {Math.ceil(player1AbilityTimeRemaining / 1000)}s

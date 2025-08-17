@@ -3,6 +3,7 @@ import { Fish } from './Fish';
 import { Bubble } from './Bubble';
 import { GameUI } from './GameUI';
 import { SpecialEffects } from './SpecialEffects';
+import Jellyfish from './Jellyfish';
 import { useGameLogic } from '../hooks/useGameLogic';
 
 export const GameArena = () => {
@@ -50,6 +51,15 @@ export const GameArena = () => {
           speed={fish.speed}
         />
       ))}
+
+      {/* Jellyfish - appears every minute */}
+      {gameState.jellyfish && gameState.jellyfish.isActive && (
+        <Jellyfish 
+          x={gameState.jellyfish.x + gameState.jellyfish.size/2}
+          y={gameState.jellyfish.y + gameState.jellyfish.size/2}
+          size={gameState.jellyfish.size}
+        />
+      )}
 
       {/* Player 1 catfish */}
       <CatFish 
